@@ -57,7 +57,8 @@ function backup_files() {
 
   local directory=$(dirname "${backup_dir}")
   local filename=$(basename "${backup_dir}")
-  backup_file="${backup_file}${filename}.zip"
+  local current_date=$(date +%Y-%m-%d)
+  backup_file="${backup_file}${filename}-${current_date}.zip"
 
   local password_option=""
   if [ -n "$zip_password" ]; then
@@ -81,7 +82,10 @@ function backup_files() {
   fi
 
   local file_count=$(zipinfo -l $backup_file | wc -l)
-  echo "备份完成\n目录:${backup_dir};\n文件:${backup_file};\n备份文件数量:${file_count}"
+  echo "备份完成
+  目录:${backup_dir};
+  文件:${backup_file};
+  备份文件数量:${file_count}"
 }
 
 function remove_history_files() {
@@ -90,18 +94,18 @@ function remove_history_files() {
 
   if [ -z "${remove_file_before_day}" ] || [ ${remove_file_before_day} -le 0 ]; then
     echo "文件保存天数=${remove_file_before_day}天没有限制,不进行文件删除"
-    return 0;
+    exit 0;
   fi
 
   local files=$(find ${backup_file_dir} -type f -ctime +${remove_file_before_day})
   if [ -z "${files}" ]; then
       echo "没有需要删除的文件，忽略本次删除"
-      return 0;
+      exit 0;
   fi
   
   echo "需要删除的文件: ${files}"
 #  rm -rf $files
-#  find ${backup_file_dir} -ctime -3 -exec echo {} \;
+##  find ${backup_file_dir} -ctime -3 -exec echo {} \;
   echo "成功删除的文件: ${files}"
 }
 
