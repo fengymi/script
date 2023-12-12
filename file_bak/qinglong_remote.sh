@@ -7,11 +7,11 @@ function sendMessage() {
 
 function file_backup() {
   USER_NAME="${FILE_BACKUP_USER_NAME}"
-  USER_KEY_PATH=''
+  USER_KEY_PATH="${FILE_BACKUP_USER_KEY_PATH}"
   HOST_ADDR='10.0.0.3'
-  REMOTE_SHELL_PATH='/data/self_script/file_backup.sh'
-  BACKUP_SOURCE_DIR='/private_data/nextcloud/fengymi/files/重要'
-  BACKUP_TARGET_DIR='/data/webdav/阿里云盘/backup/fengymi'
+  REMOTE_SHELL_PATH=''
+  BACKUP_SOURCE_DIR=''
+  BACKUP_TARGET_DIR=''
 
   ZIP_PASSWORD="${FILE_BACKUP_ZIP_PASSWORD}"
   HOST_PORT=22
@@ -41,15 +41,14 @@ function file_backup() {
   fi
 
   if [ ${log_level} -le 1 ]; then
-    echo "ssh ${USER_NAME}@${HOST_ADDR} ${auth_option} ${REMOTE_SHELL_PATH} -d ${BACKUP_SOURCE_DIR} -f ${BACKUP_TARGET_DIR} ${zip_password_option} -l ${MAX_DAYS}"
+    echo "ssh ${USER_NAME}@${HOST_ADDR} ${auth_option} ${REMOTE_SHELL_PATH} -ds ${BACKUP_SOURCE_DIR} -dt ${BACKUP_TARGET_DIR} ${zip_password_option} -l ${MAX_DAYS}"
   fi
 
-  result=$(ssh ${USER_NAME}@${HOST_ADDR} ${auth_option} ${REMOTE_SHELL_PATH} -d ${BACKUP_SOURCE_DIR} -f ${BACKUP_TARGET_DIR} ${zip_password_option} -l ${MAX_DAYS} 2>&1)
+  result=$(ssh ${USER_NAME}@${HOST_ADDR} ${auth_option} ${REMOTE_SHELL_PATH} -ds ${BACKUP_SOURCE_DIR} -dt ${BACKUP_TARGET_DIR} ${zip_password_option} -l ${MAX_DAYS} 2>&1)
   sendMessage "${result}"
 
 #  ssh ${USER_NAME}@${HOST_ADDR} ${auth_option} ${REMOTE_SHELL_PATH} -d ${BACKUP_SOURCE_DIR} -f ${BACKUP_TARGET_DIR} ${zip_password_option} -l ${MAX_DAYS}  > output.log 2>&1
 #  python3 send.py "执行备份完成" "${result}"
-  #ssh fengymi_backup@10.0.0.3 /data/self_script/file_bakup.sh -d /private_data/nextcloud/fengymi/files/重要 -f /data/webdav/阿里云盘/bakup/fengymi > output.log 2>&1
 }
 
 log_level=1 #DEBUG=1/INFO=2
