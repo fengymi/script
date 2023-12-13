@@ -1,10 +1,4 @@
 #!/bin/bash
-#BAK_SOURCE_DIR=""
-#BAK_TARGET_DIR=""
-#PASSWORD=""
-## 文件保持多久删除
-#FILE_KEEP_DAYS=0
-MAX_FAIL_COUNT=0
 
 while getopts "s:t:p:l:" OPTION
     do
@@ -23,18 +17,19 @@ while getopts "s:t:p:l:" OPTION
             FILE_KEEP_DAYS=$OPTARG
             ;;
         \?)
-            echo "-s=待备份目录;
-            -t=备份后目录;
-            -p=压缩密码;
-            -l=n天前删除"
+            echo -e "-s=待备份目录; \n-t=备份后目录; \n-p=压缩密码; \n-l=n天前删除"
             exit 1
             ;;
         esac
     done
 
 
+LOG_PATH='/var/log/file_backup.log'
+MAX_FAIL_COUNT=0 # 允许失败文件数(失败还记录备份成功)
+LOG_LEVEL=2 # 1-debug, 2-info
+
 function backup_files() {
-  echo "backup_files: ${BAK_SOURCE_DIR}:${BAK_TARGET_DIR}"
+  log_print "backup_files: ${BAK_SOURCE_DIR} -> ${BAK_TARGET_DIR}" "true"
   local backup_source_dir=${BAK_SOURCE_DIR}
   local backup_target_dir=${BAK_TARGET_DIR}
 
@@ -74,52 +69,71 @@ function increment_backup() {
   local backup_source_dir=$1
   local backup_target_dir=$2
 
-  local last_update_time_file_name="${backup_target_dir}last_updated_time.txt"
-  local last_update_success_time_file_name="${backup_target_dir}last_updated_success_time.txt"
+  local md5_key=`echo -n "${backup_source_dir}_${backup_target_dir}"|md5sum|cut -d ' ' -f1`
+  local last_update_success_time_file_name="${backup_target_dir}last_updated_success_time_${md5_key}.txt"
+  local last_update_log_file_name="${backup_target_dir}last_updated_log_${md5_key}.txt"
 
-  local last_updated_time=0;
-  if [ -f "${last_update_time_file_name}" ]; then
-    last_updated_time=$(stat -c "%Y" "$last_update_time_file_name")
+  local last_updated_success_time=0;
+  if [ -f "${last_update_success_time_file_name}" ]; then
+    last_updated_success_time=`cat ${last_update_success_time_file_name}`
   fi
 
-  echo "上次更新时间: ${last_updated_time}"
-  echo "`date +'%Y-%m-%d %H:%M:%S'`上次更新成功时间: ${last_updated_time}" > ${last_update_time_file_name}
-  echo "`date +'%Y-%m-%d %H:%M:%S'`开始备份: `date +'%Y-%m-%d %H:%M:%S'`" >> ${last_update_time_file_name}
+  local last_updated_success_time_format=`date -d @"$last_updated_success_time" "+%Y-%m-%d %H:%M:%S"`
+  log_print "上次更新时间: ${last_updated_success_time} -- ${last_updated_success_time_format}"
+  echo "`date +'%Y-%m-%d %H:%M:%S'` 上次更新成功时间: ${last_updated_success_time} -- ${last_updated_success_time_format}" > ${last_update_log_file_name}
+  echo "`date +'%Y-%m-%d %H:%M:%S'` 开始备份: `date +'%Y-%m-%d %H:%M:%S'`" >> ${last_update_log_file_name}
   ## 执行增量更新
-  local files=`find "${backup_source_dir}" -type f -newermt "$(date -d @${last_updated_time} +'%Y-%m-%d %H:%M:%S')"`;
-  echo "待备份文件: ${files}"
+#  local file_last_update_time=$(date -d @${last_updated_success_time} +'%Y-%m-%d %H:%M:%S')
+#  local find_files_cmd="find \"${backup_source_dir}\" -type f -newermt \"${file_last_update_time}\""
+#  local files=`${find_files_cmd}`;
+  local files=`find "${backup_source_dir}" -type f -newermt "$(date -d @${last_updated_success_time} +'%Y-%m-%d %H:%M:%S')"`;
 
-  local count=${#files[@]}
+  ## 记录备份文件数
+  local count=`find "${backup_source_dir}" -type f -newermt "$(date -d @${last_updated_success_time} +'%Y-%m-%d %H:%M:%S')" | wc -l`
+  log_print "待备份文件数: ${count}"
   local success_count=0
   local fail_count=0
+  local ignore_count=0
 
   if [ $count -le 0 ]; then
-      log_print "不存在增量文件,忽略"
+      log_print "不存在增量文件,忽略" "true"
       exit 0
   fi
 
+  local current_update_time=$(date +%s)
+
+  local oldIFS=$IFS
+  IFS=$'\n'
   for file in ${files} ; do
     local base_filename=$(basename "$file")
     local filename=${file//$backup_source_dir/}
     local temp_dir=${filename//$base_filename/}
 
+    if [ ${LOG_LEVEL} -le 1 ]; then
+      echo "file=${file}, base_filename=${base_filename}, filename=${filename}, temp_dir=${temp_dir}"
+    fi
+
     ## 创建目标相同目录
     local target_dir_path="${backup_target_dir}${temp_dir}"
-    if [ ! -d $target_dir_path ]; then
-        mkdir -r ${target_dir_path}
+    if [ ! -d "$target_dir_path" ]; then
+        mkdir -p "${target_dir_path}"
     fi
 
     local target_file_path="${target_dir_path}/${base_filename}"
     diff_files ${file} ${target_file_path}
     local diff_code=$?
-    if [ ${diff_code} -eq 0 ]; then
-      log_print "文件已存在，忽略: ${file}"
+    if [ ${diff_code} -ne 0 ]; then
+#      log_print "文件已存在，忽略: ${file}"
+      ((ignore_count++))
+      echo -ne "`date +'%Y-%m-%d %H:%M:%S'` 执行进度[成功数/失败数/忽略数/总数]: ${success_count}/${fail_count}/${ignore_count}/${count}\r" >> "${LOG_PATH}"
       continue
     fi
 
-#    echo "待备份文件: ${file}, 原文件名: ${filename}, 目标文件: ${target_dir_path}"
-#    echo "cp -rp ${file} ${target_dir_path}"
-    cp -rp ${file} ${target_dir_path}
+    if [ ${LOG_LEVEL} -le 1 ]; then
+      echo "待备份文件: ${file}, 原文件名: ${filename}, 目标文件: ${target_dir_path}"
+      echo "cp -rp ${file} ${target_dir_path}"
+    fi
+    cp -rp "${file}" "${target_dir_path}"
     local cp_code=$?
     if [ $cp_code -eq 0 ]; then
       ((success_count++))
@@ -127,18 +141,22 @@ function increment_backup() {
       log_print "${file} 备份失败" "true"
       ((fail_count++))
     fi
+
+    echo -ne "`date +'%Y-%m-%d %H:%M:%S'` 执行进度[成功数/失败数/忽略数/总数]: ${success_count}/${fail_count}/${ignore_count}/${count}\r" >> "${LOG_PATH}"
   done
+  echo -ne "`date +'%Y-%m-%d %H:%M:%S'` 执行进度[成功数/失败数/忽略数/总数]: ${success_count}/${fail_count}/${ignore_count}/${count}\r\n" >> "${LOG_PATH}"
+  IFS=$oldIFS
 
-  log_print "增量备份执行完成count=${count}, success_count=${success_count}, fail_count=${fail_count}" "ture"
-
+  log_print "增量备份执行完成count=${count}, success_count=${success_count}, fail_count=${fail_count}, ignore_count=${ignore_count}" "true"
   if [ $fail_count -gt $MAX_FAIL_COUNT ]; then
-      log_print "允许最大失败数>本次失败数: ${MAX_FAIL_COUNT}>${fail_count}, 不更新最终结果,允许下次重新更新目录" "ture"
+      log_print "允许最大失败数<本次失败数: ${MAX_FAIL_COUNT}<${fail_count}, 不更新最终结果,允许下次重新更新目录" "true"
       exit 3;
   fi
 
   ## 记录更新成功
-  `cat ${last_update_time_file_name} > ${last_update_success_time_file_name}`
-  echo "`date +'%Y-%m-%d %H:%M:%S'`备份完成: `date +'%Y-%m-%d %H:%M:%S'`" >> ${last_update_success_time_file_name}
+  echo "${current_update_time}" > ${last_update_success_time_file_name}
+  echo "`date +'%Y-%m-%d %H:%M:%S'` 备份完成: count=${count}, success_count=${success_count}, fail_count=${fail_count}, ignore_count=${ignore_count}" >> ${last_update_log_file_name}
+  echo "`date +'%Y-%m-%d %H:%M:%S'` 本次更新成功时间戳: ${current_update_time}" >> ${last_update_log_file_name}
 }
 
 function diff_files() {
@@ -146,14 +164,14 @@ function diff_files() {
   local destination_file=$2
 
   if [ ! -f $destination_file ]; then
-      exit 0
+      return 0
   fi
 
   # 检查目标文件是否存在且与源文件相同
   if [ -f "$destination_file" ] && cmp -s "$source_file" "$destination_file"; then
-      exit 1
+      return 1
   else
-      exit 0
+      return 0
   fi
 }
 
@@ -198,7 +216,7 @@ function full_backup() {
 
   log_print "backup_target_dir=$backup_target_dir, filename=$backup_source_dir"
 
-  local zip_shell="zip -dc -q ${password_option} -r $backup_target_dir $filename >> /var/log/file_backup.log"
+  local zip_shell="zip -dc -q ${password_option} -r $backup_target_dir $filename >>${LOG_PATH}"
   log_print "${zip_shell}"
   if [ -n $directory ]; then
     cd ${directory} && `${zip_shell}`
@@ -245,8 +263,9 @@ function log_print() {
   fi
 
   echo "`date +'%Y-%m-%d %H:%M:%S'` $1" >> /var/log/file_backup.log
-  if [ "$2" == 'true' ]; then
-      echo "`date +'%Y-%m-%d %H:%M:%S'` $1"
+
+  if [ "$2" == "true" ]; then
+    echo "`date +'%Y-%m-%d %H:%M:%S'` $1"
   fi
 }
 
