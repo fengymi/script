@@ -115,11 +115,12 @@ function increment_backup() {
 
     ## 创建目标相同目录
     local target_dir_path="${backup_target_dir}${temp_dir}"
+    target_dir_path=`fulfill_dir_path "${target_dir_path}"`
     if [ ! -d "$target_dir_path" ]; then
         mkdir -p "${target_dir_path}"
     fi
 
-    local target_file_path="${target_dir_path}/${base_filename}"
+    local target_file_path="${target_dir_path}${base_filename}"
     diff_files ${file} ${target_file_path}
     local diff_code=$?
     if [ ${diff_code} -ne 0 ]; then
